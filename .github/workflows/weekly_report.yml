@@ -1,0 +1,47 @@
+name: Weekly Analytics Brief (OLJ)
+
+on:
+  schedule:
+    # 05:00 UTC = 08:00 Beirut time (UTC+3, EEST/summer time, in effect now).
+    # GitHub Actions cron is always UTC and does NOT auto-adjust for Lebanon's DST changes --
+    # if Beirut switches to UTC+2 (EET/winter time), this will fire at 09:00 local instead of
+    # 08:00 until you manually change "5" to "6" below. Worth a calendar reminder for whenever
+    # Lebanon's DST schedule changes.
+    - cron: "0 5 * * 1"
+  workflow_dispatch: {}   # lets you also trigger a run manually from the Actions tab, any time
+
+jobs:
+  run-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write service account key (from secret, never committed to the repo)
+        env:
+          GSHEET_SA_KEY: ${{ secrets.GSHEET_SA_KEY }}
+        run: echo "$GSHEET_SA_KEY" > service_account.json
+
+      - name: Run the notebook
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: papermill weekly_report.ipynb output.ipynb
+
+      - name: Upload this run's outputs (for debugging / a record of every week)
+        if: always()   # upload even if the run failed partway, so you can see where it broke
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report-${{ github.run_id }}
+          path: |
+            output.ipynb
+            *.docx
+          retention-days: 30

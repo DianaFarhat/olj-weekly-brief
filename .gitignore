@@ -1,0 +1,11 @@
+# Credentials -- these must NEVER be committed. They're supplied at runtime via GitHub Secrets.
+service_account.json
+oauth_client_secret.json
+token.json
+
+# Generated each run -- not part of the source
+output.ipynb
+*.docx
+
+# Local testing artifacts
+Daily_sheet_Acquisitions_Churns.xlsx
