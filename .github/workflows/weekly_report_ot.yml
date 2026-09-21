@@ -1,0 +1,44 @@
+name: Weekly Analytics Brief (OT)
+
+on:
+  schedule:
+    # 05:10 UTC = 08:10 Beirut time -- staggered 10 min after the OLJ workflow just so both
+    # don't hit the Sheets/GA4 APIs at the exact same second. Not strictly required, just tidy.
+    - cron: "10 5 * * 1"
+  workflow_dispatch: {}   # lets you also trigger a run manually from the Actions tab, any time
+
+jobs:
+  run-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write service account key (from secret, never committed to the repo)
+        env:
+          GSHEET_SA_KEY: ${{ secrets.GSHEET_SA_KEY }}
+        run: echo "$GSHEET_SA_KEY" > service_account.json
+
+      - name: Run the OT notebook
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: papermill weekly_report_OT.ipynb output_ot.ipynb
+
+      - name: Upload this run's outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report-ot-${{ github.run_id }}
+          path: |
+            output_ot.ipynb
+            Weekly_Analytics_Brief_OT_*.docx
+          retention-days: 30

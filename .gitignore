@@ -4,8 +4,9 @@ oauth_client_secret.json
 token.json
 
 # Generated each run -- not part of the source
-output.ipynb
-*.docx
+output_olj.ipynb
+output_ot.ipynb
+Weekly_Analytics_Brief_*.docx
 
 # Local testing artifacts
 Daily_sheet_Acquisitions_Churns.xlsx
