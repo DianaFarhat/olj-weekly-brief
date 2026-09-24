@@ -1,44 +1,92 @@
+# Runs the OT weekly brief every Monday and emails it at 09:15 Beirut time.
+#
+# GitHub's scheduler only speaks UTC and Lebanon switches between UTC+3 (summer) and UTC+2 (winter),
+# so there are two triggers and only the one that equals 08:40 Beirut *today* continues. The notebook
+# finishes in a few minutes, then its email cell waits until 09:15 (SEND_AT) before sending.
+#
+# Repo secrets needed (Settings -> Secrets and variables -> Actions) -- the same ones as the OLJ brief:
+#   CMS_API_KEY          the CMS API key
+#   GSHEET_SA_KEY        full contents of service_account.json (GA4 access; the name is historical)
+#   GMAIL_ADDRESS        sending Gmail account
+#   GMAIL_APP_PASSWORD   its 16-character App Password
+# Optional repo variable:
+#   BRIEF_RECIPIENTS_OT  comma-separated list for the scheduled send (replaces SCHEDULED_RECIPIENTS)
 name: Weekly Analytics Brief (OT)
 
 on:
   schedule:
-    # 05:10 UTC = 08:10 Beirut time -- staggered 10 min after the OLJ workflow just so both
-    # don't hit the Sheets/GA4 APIs at the exact same second. Not strictly required, just tidy.
-    - cron: "10 5 * * 1"
-  workflow_dispatch: {}   # lets you also trigger a run manually from the Actions tab, any time
+    - cron: "40 5 * * 1"   # 08:40 Beirut in summer (UTC+3)
+    - cron: "40 6 * * 1"   # 08:40 Beirut in winter (UTC+2)
+  workflow_dispatch:        # "Run workflow" button, for tests
+    inputs:
+      send_email:
+        description: "Send the email? (off = build and export only)"
+        type: boolean
+        default: false
 
 jobs:
-  run-report:
+  brief:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
+      - name: Pick the trigger that matches Beirut's current UTC offset
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then echo "go=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$(TZ=Asia/Beirut date +%z)" = "+0300" ]; then want="40 5 * * 1"; else want="40 6 * * 1"; fi
+          if [ "${{ github.event.schedule }}" = "$want" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"; echo "Not today's slot (daylight saving) -- skipping."
+          fi
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.go == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.go == 'true'
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install LibreOffice (for the PDF copy) + Calibri-compatible font
+        if: steps.gate.outputs.go == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libreoffice-writer fonts-crosextra-carlito
 
-      - name: Write service account key (from secret, never committed to the repo)
-        env:
-          GSHEET_SA_KEY: ${{ secrets.GSHEET_SA_KEY }}
-        run: echo "$GSHEET_SA_KEY" > service_account.json
+      - name: Install Python packages
+        if: steps.gate.outputs.go == 'true'
+        run: >
+          pip install -q jupyter nbconvert ipykernel pandas requests python-docx
+          google-api-python-client google-auth google-auth-oauthlib google-analytics-data
 
-      - name: Run the OT notebook
+      - name: Write the service-account key
+        if: steps.gate.outputs.go == 'true'
+        run: echo '${{ secrets.GSHEET_SA_KEY }}' > service_account.json
+
+      - name: Run the notebook (builds, exports, then emails at 09:15)
+        if: steps.gate.outputs.go == 'true'
         env:
+          CMS_API_KEY: ${{ secrets.CMS_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-        run: papermill weekly_report_OT.ipynb output_ot.ipynb
+          BRIEF_RECIPIENTS_OT: ${{ vars.BRIEF_RECIPIENTS_OT }}
+          SEND_EMAIL: ${{ github.event_name == 'schedule' && '1' || (inputs.send_email && '1' || '0') }}
+          SEND_NOW: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: >
+          jupyter nbconvert --to notebook --execute weekly_report_OT.ipynb
+          --output executed_weekly_report_OT.ipynb --ExecutePreprocessor.timeout=5400
 
-      - name: Upload this run's outputs
-        if: always()
+      - name: Keep the brief, the order list + executed notebook (Actions run -> Artifacts)
+        if: always() && steps.gate.outputs.go == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: weekly-report-ot-${{ github.run_id }}
+          name: weekly-brief-ot
           path: |
-            output_ot.ipynb
             Weekly_Analytics_Brief_OT_*.docx
-          retention-days: 30
+            Weekly_Analytics_Brief_OT_*.pdf
+            acquisitions_orders.csv
+            executed_weekly_report_OT.ipynb
+          if-no-files-found: ignore
+
+      - name: Remove the key file
+        if: always()
+        run: rm -f service_account.json
