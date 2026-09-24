@@ -1,19 +1,18 @@
-# Runs the OLJ weekly brief every Monday and emails it at 09:15 Beirut time.
+# Runs the weekly briefs (OLJ + OT, one notebook) every Monday and emails each one at 09:15 Beirut time.
 #
 # GitHub's scheduler only speaks UTC and Lebanon switches between UTC+3 (summer) and UTC+2 (winter),
 # so there are two triggers and only the one that equals 08:40 Beirut *today* continues. The notebook
-# finishes in a few minutes, then its email cell waits until 09:15 (SEND_AT) before sending.
-# Starting at :40 rather than on the hour also avoids GitHub's busiest (most delayed) slot.
+# finishes in a few minutes, then its email cell waits until 09:15 (SEND_AT) and sends both emails.
 #
-# Repo secrets needed (Settings -> Secrets and variables -> Actions):
+# Repo secrets (Settings -> Secrets and variables -> Actions):
 #   CMS_API_KEY          the CMS API key
-#   GSHEET_SA_KEY        full contents of service_account.json (Sheets + GA4 access)
+#   GSHEET_SA_KEY        full contents of service_account.json (GA4 access; the name is historical)
 #   GMAIL_ADDRESS        sending Gmail account
 #   GMAIL_APP_PASSWORD   its 16-character App Password
-# Optional repo VARIABLE (same page, "Variables" tab -- not a secret):
-#   BRIEF_RECIPIENTS     comma-separated list for the Monday send; overrides SCHEDULED_RECIPIENTS in the notebook
-#   Manual "Run workflow" test runs always go to TEST_RECIPIENTS only.
-name: OLJ weekly brief
+# Optional repo variables (comma-separated; replace SCHEDULED_RECIPIENTS in the notebook):
+#   BRIEF_RECIPIENTS_OLJ   (the older BRIEF_RECIPIENTS still works for OLJ)
+#   BRIEF_RECIPIENTS_OT
+name: Weekly Analytics Brief (OLJ + OT)
 
 on:
   schedule:
@@ -22,7 +21,7 @@ on:
   workflow_dispatch:        # "Run workflow" button, for tests
     inputs:
       send_email:
-        description: "Send the email? (off = build and export only)"
+        description: "Send the emails? (off = build and export only; on = test recipients, right away)"
         type: boolean
         default: false
 
@@ -50,41 +49,44 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install LibreOffice (for the PDF copy) + Calibri-compatible font
+      - name: Install LibreOffice (for the PDF copies) + Calibri-compatible font
         if: steps.gate.outputs.go == 'true'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libreoffice-writer fonts-crosextra-carlito
 
       - name: Install Python packages
         if: steps.gate.outputs.go == 'true'
         run: >
-          pip install -q jupyter nbconvert ipykernel pandas openpyxl requests python-docx
+          pip install -q jupyter nbconvert ipykernel pandas requests python-docx
           google-api-python-client google-auth google-auth-oauthlib google-analytics-data
 
       - name: Write the service-account key
         if: steps.gate.outputs.go == 'true'
         run: echo '${{ secrets.GSHEET_SA_KEY }}' > service_account.json
 
-      - name: Run the notebook (builds, exports, then emails at 09:15)
+      - name: Run the notebook (builds both briefs, exports, then emails at 09:15)
         if: steps.gate.outputs.go == 'true'
         env:
           CMS_API_KEY: ${{ secrets.CMS_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           BRIEF_RECIPIENTS: ${{ vars.BRIEF_RECIPIENTS }}
+          BRIEF_RECIPIENTS_OLJ: ${{ vars.BRIEF_RECIPIENTS_OLJ }}
+          BRIEF_RECIPIENTS_OT: ${{ vars.BRIEF_RECIPIENTS_OT }}
           SEND_EMAIL: ${{ github.event_name == 'schedule' && '1' || (inputs.send_email && '1' || '0') }}
           SEND_NOW: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: >
-          jupyter nbconvert --to notebook --execute weekly_report_OLJ.ipynb
+          jupyter nbconvert --to notebook --execute weekly_report.ipynb
           --output executed_weekly_report.ipynb --ExecutePreprocessor.timeout=5400
 
-      - name: Keep the brief + executed notebook (Actions run -> Artifacts)
+      - name: Keep both briefs, the order list + executed notebook (Actions run -> Artifacts)
         if: always() && steps.gate.outputs.go == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: weekly-brief
+          name: weekly-briefs
           path: |
-            Weekly_Analytics_Brief_OLJ_*.docx
-            Weekly_Analytics_Brief_OLJ_*.pdf
+            Weekly_Analytics_Brief_*.docx
+            Weekly_Analytics_Brief_*.pdf
+            acquisitions_orders.csv
             executed_weekly_report.ipynb
           if-no-files-found: ignore
 
