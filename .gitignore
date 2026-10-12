@@ -2,11 +2,16 @@
 service_account.json
 oauth_client_secret.json
 token.json
+token_gsc.json
 
 # Generated each run -- not part of the source
-output_olj.ipynb
-output_ot.ipynb
+output*.ipynb
+executed_*.ipynb
+*_Brief_*.docx
 Weekly_Analytics_Brief_*.docx
+*.pdf
+acquisitions_*.csv
+acquisitions_vs_sheet.xlsx
 
 # Local testing artifacts
 Daily_sheet_Acquisitions_Churns.xlsx

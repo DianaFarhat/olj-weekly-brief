@@ -1,9 +1,12 @@
+# Same packages the workflow installs (.github/workflows/weekly_brief.yml)
+jupyter
+nbconvert
+ipykernel
 pandas
 openpyxl
+requests
 google-api-python-client
 google-auth
 google-auth-oauthlib
 google-analytics-data
 python-docx
-papermill
-ipykernel

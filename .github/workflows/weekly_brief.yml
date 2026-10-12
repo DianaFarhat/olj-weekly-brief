@@ -6,7 +6,8 @@
 # The notebook then waits until 12:00 (SEND_AT in the Email cell) and sends, even if GitHub started a bit late.
 #
 # Needed in the repo (Settings -> Secrets and variables -> Actions):
-#   Secrets:   CMS_API_KEY, GSHEET_SA_KEY (the service account JSON), GMAIL_ADDRESS, GMAIL_APP_PASSWORD
+#   Secrets:   CMS_API_KEY, MATOMO_TOKEN, GSHEET_SA_KEY (the service account JSON: GA4, the acquisitions sheet,
+#              Search Console), GMAIL_ADDRESS, GMAIL_APP_PASSWORD
 #   Variables: BRIEF_RECIPIENTS_OLJ, BRIEF_RECIPIENTS_OT (optional; comma-separated, override the notebook's lists)
 
 name: Weekly analytics brief
@@ -67,13 +68,7 @@ jobs:
           pip install --quiet jupyter nbconvert ipykernel pandas openpyxl requests \
             google-api-python-client google-auth google-auth-oauthlib google-analytics-data python-docx
 
-      - name: Install LibreOffice (for the PDF)
-        if: steps.gate.outputs.run == 'true'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libreoffice-writer > /dev/null
-
-      - name: Write the service account key (GA4 + the acquisitions Google Sheet)
+      - name: Write the service account key (GA4, the acquisitions Google Sheet, Search Console)
         if: steps.gate.outputs.run == 'true'
         env:
           GSHEET_SA_KEY: ${{ secrets.GSHEET_SA_KEY }}
@@ -83,6 +78,7 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         env:
           CMS_API_KEY: ${{ secrets.CMS_API_KEY }}
+          MATOMO_TOKEN: ${{ secrets.MATOMO_TOKEN }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           BRIEF_RECIPIENTS_OLJ: ${{ vars.BRIEF_RECIPIENTS_OLJ }}
@@ -94,7 +90,7 @@ jobs:
           jupyter nbconvert --to notebook --execute weekly_report.ipynb \
             --output executed_weekly_report.ipynb --ExecutePreprocessor.timeout=-1
 
-      - name: Keep the outputs (executed notebook, Word / PDF briefs, order CSV)
+      - name: Keep the outputs (executed notebook, Word briefs, order CSV)
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -102,7 +98,6 @@ jobs:
           path: |
             executed_weekly_report.ipynb
             *.docx
-            *.pdf
             acquisitions_orders.csv
           if-no-files-found: ignore
           retention-days: 30
