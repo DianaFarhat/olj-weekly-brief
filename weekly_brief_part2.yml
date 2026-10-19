@@ -1,0 +1,81 @@
+# Weekly brief · PART 2 -- you run it after part 1's email:
+#   Actions -> "Weekly brief · part 2" -> Run workflow -> paste Claude's answer in the box -> Run workflow.
+# Rebuilds both briefs with the ★ notes and English titles and emails them right away
+# (to TEST_RECIPIENTS while SEND_TO = "test" in the notebook's ⚙️ Settings). Run it the same week (by Sunday).
+#
+# Needed in the repo (Settings -> Secrets and variables -> Actions):
+#   Secrets:   CMS_API_KEY, MATOMO_TOKEN, GSHEET_SA_KEY (the service account JSON: GA4, the acquisitions sheet,
+#              Search Console), GMAIL_ADDRESS, GMAIL_APP_PASSWORD
+#   Variables: BRIEF_RECIPIENTS_OLJ, BRIEF_RECIPIENTS_OT (optional; used only when SEND_TO = "everyone" in the notebook)
+
+name: "Weekly brief · part 2"
+
+on:
+  workflow_dispatch:
+    inputs:
+      claude_answer:
+        description: "Paste Claude's answer here (the JSON line at the end is enough)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-brief
+  cancel-in-progress: false
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python packages
+        run: |
+          pip install --quiet jupyter nbconvert ipykernel pandas openpyxl requests \
+            google-api-python-client google-auth google-auth-oauthlib google-analytics-data python-docx
+
+      - name: Write the service account key (GA4, the acquisitions Google Sheet, Search Console)
+        env:
+          GSHEET_SA_KEY: ${{ secrets.GSHEET_SA_KEY }}
+        run: printf '%s' "$GSHEET_SA_KEY" > service_account.json
+
+      - name: Run the notebook with Claude's answer (builds and emails the briefs)
+        env:
+          BRIEF_PART: "2"
+          CMS_API_KEY: ${{ secrets.CMS_API_KEY }}
+          MATOMO_TOKEN: ${{ secrets.MATOMO_TOKEN }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          BRIEF_RECIPIENTS_OLJ: ${{ vars.BRIEF_RECIPIENTS_OLJ }}
+          BRIEF_RECIPIENTS_OT: ${{ vars.BRIEF_RECIPIENTS_OT }}
+          CLAUDE_ANSWER: ${{ inputs.claude_answer }}   # an env var, never pasted into the shell
+        run: |
+          jupyter nbconvert --to notebook --execute weekly_report.ipynb \
+            --output executed_weekly_report.ipynb --ExecutePreprocessor.timeout=-1
+
+      - name: Keep the outputs (executed notebook, Word briefs, Claude.ai file, order CSV)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-brief-part2-${{ github.run_id }}
+          path: |
+            executed_weekly_report.ipynb
+            *.docx
+            Claude_translations_*.txt
+            acquisitions_orders.csv
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Remove the service account key
+        if: always()
+        run: rm -f service_account.json
